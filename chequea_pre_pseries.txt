@@ -1,0 +1,66 @@
+#!/bin/ksh
+
+########################################################################################################
+#Fecha creacion: 02-04-2016
+#Fecha modificacion: 02-04-2016
+#Creado por: TATA Consultancy Services
+#Funcion: Compara la informacion extraida del script comando_pre_series para validar el File Systems.
+########################################################################################################
+
+#set -xv
+
+servidor=`hostname`
+
+sudo mount red_nim:/admin /cmdcol
+
+cd /cmdcol/logs/comandos_pre_pseries
+sw=0
+cont=$(ls -l *.log | grep -i $servidor | wc -l)
+if [ $cont -eq 0 ]
+then
+   echo " ERROR - Este servidor no existe en la ruta /admin/logs/comandos_pre_pseries --- Verificar "
+   sw=1
+else
+   nom=$( ls -l * | grep -i $servidor |tr '_' ' '| awk '{ print $9 }')
+
+#  Chequea si los filesystem existen montados
+
+   listafs=$(df -g | grep -v Filesystem | tr '\n' '|')
+   cat $nom* | awk "/------df/,/------ifconfig/" | grep -Ev "Filesystem|------" | awk '{ print $1 " " $7 }' | \
+   while read lv fs
+   do
+     echo "$listafs" | tr '|' '\n' |grep -E "$lv |\$fs " | wc -l | read cont
+     if [ $cont -ne 1 ]
+     then
+        echo "+++ $servidor -- FS => $lv $fs no montado --- Verificar"
+        sw=1
+     fi
+   done
+   if [ $sw -eq 0 ];then echo "+++ $servidor => Montado OK";fi
+
+   sw=0
+   listafs=$(df -g | grep -v Filesystem | cat -n | tr '\n' '|')
+   cat $nom* | awk "/------df/,/------ifconfig/" | grep -Ev "Filesystem|------" | awk '{ print $1 " " $7 }' | \
+   cat -n | while read num lv fs
+   do
+     echo "$listafs" |tr '|' '\n'|awk '{ print $1 " " $2 " " $8 }'|grep "$num $lv $fs" | wc -l | read cont
+     if [ $cont -ne 1 ]
+     then
+        err=$num
+        sw=1
+     fi
+   done
+   if [ $sw -eq 0 ]
+   then
+      echo "+++ $servidor => Orden OK"
+   else
+      echo "+++ $servidor -- FS no montados en el orden que le corresponde desde FS $err --- Verificar"
+      echo "--------------- df -g ------------------"
+      df -g | grep -v Filesystem | cat -n
+      echo "------ Referencia en NIM ------"
+      cat $nom*|awk "/------df/,/------ifconfig/"|grep -Ev "Filesystem|------"|awk '{ print $1 " " $7 }'|cat -n
+      echo "----------------------------------------"
+   fi
+fi
+cd
+sudo umount /cmdcol
